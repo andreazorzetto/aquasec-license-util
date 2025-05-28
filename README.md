@@ -12,25 +12,26 @@ A command-line tool for extracting and analyzing license utilization data from A
 
 ## Installation
 
-### Using pip
+### From source (recommended)
 
 ```bash
-pip install aquasec-lib
-pip install aquasec-license-utility
+git clone https://github.com/andreazorzetto/aquasec-license-util.git
+cd aquasec-license-util
+pip install -r requirements.txt
 ```
 
 ### Using Docker
 
 ```bash
-docker pull ghcr.io/andreazorzetto/aquasec-license-utility:latest
+docker pull ghcr.io/andreazorzetto/aquasec-license-util:latest
 ```
 
-### From source
+### Prerequisites
+
+This utility requires the `aquasec` library:
 
 ```bash
-git clone https://github.com/andreazorzetto/aquasec-license-utility.git
-cd aquasec-license-utility
-pip install -r requirements.txt
+pip install aquasec
 ```
 
 ## Quick Start
@@ -42,7 +43,7 @@ pip install -r requirements.txt
 python aqua_license_util.py setup
 
 # Or using Docker
-docker run -it -v ~/.aqua:/root/.aqua ghcr.io/andreazorzetto/aquasec-license-utility:latest setup
+docker run -it -v ~/.aqua:/root/.aqua ghcr.io/andreazorzetto/aquasec-license-util:latest setup
 ```
 
 ### Basic Usage
@@ -65,14 +66,14 @@ python aqua_license_util.py breakdown --csv-file report.csv --json-file report.j
 
 ```bash
 # Run with saved profile
-docker run -v ~/.aqua:/root/.aqua ghcr.io/andreazorzetto/aquasec-license-utility:latest show
+docker run -v ~/.aqua:/root/.aqua ghcr.io/andreazorzetto/aquasec-license-util:latest show
 
 # Run with environment variables
-docker run --env-file aqua.env ghcr.io/andreazorzetto/aquasec-license-utility:latest breakdown
+docker run --env-file aqua.env ghcr.io/andreazorzetto/aquasec-license-util:latest breakdown
 
 # Export files to host
 docker run -v ~/.aqua:/root/.aqua -v $(pwd):/output \
-  ghcr.io/andreazorzetto/aquasec-license-utility:latest \
+  ghcr.io/andreazorzetto/aquasec-license-util:latest \
   breakdown --csv-file /output/report.csv
 ```
 
@@ -123,7 +124,7 @@ python aqua_license_util.py show --profile production
 - name: Check Aqua License Usage
   run: |
     docker run -v ${{ secrets.AQUA_CREDS }}:/root/.aqua \
-      ghcr.io/andreazorzetto/aquasec-license-utility:latest show > license.json
+      ghcr.io/andreazorzetto/aquasec-license-util:latest show > license.json
     
     # Process the JSON output
     jq '.num_repositories' license.json
@@ -135,7 +136,7 @@ python aqua_license_util.py show --profile production
 #!/bin/bash
 # Get license data as JSON
 LICENSE_DATA=$(docker run -v ~/.aqua:/root/.aqua \
-  ghcr.io/andreazorzetto/aquasec-license-utility:latest show)
+  ghcr.io/andreazorzetto/aquasec-license-util:latest show)
 
 # Extract metrics
 REPOS=$(echo "$LICENSE_DATA" | jq '.num_repositories')
@@ -153,4 +154,4 @@ MIT License
 
 ## Contributing
 
-Issues and pull requests are welcome at [github.com/andreazorzetto/aquasec-license-utility](https://github.com/andreazorzetto/aquasec-license-utility)
+Issues and pull requests are welcome at [github.com/andreazorzetto/aquasec-license-util](https://github.com/andreazorzetto/aquasec-license-util)
