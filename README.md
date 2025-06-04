@@ -12,23 +12,23 @@ A command-line tool for extracting and analyzing license utilization data from A
 
 ## Installation
 
-### From source (recommended)
+### From source
 
 ```bash
 git clone https://github.com/andreazorzetto/aquasec-license-util.git
 cd aquasec-license-util
+
+# Optionally create a Python vitrual environment
+python -m venv .venv
+source .venv/bin/activate
+
 pip install -r requirements.txt
-```
-
-### Using Docker
-
-```bash
-docker pull ghcr.io/andreazorzetto/aquasec-license-util:latest
 ```
 
 ### Prerequisites
 
-This utility requires the `aquasec` library:
+- **Authentication**: This utility requires username/password authentication to connect to Aqua Security platform
+- **Python library**: The `aquasec` library must be installed:
 
 ```bash
 pip install aquasec
@@ -41,9 +41,6 @@ pip install aquasec
 ```bash
 # Interactive setup wizard
 python aqua_license_util.py setup
-
-# Or using Docker
-docker run -it -v ~/.aqua:/root/.aqua ghcr.io/andreazorzetto/aquasec-license-util:latest setup
 ```
 
 ### Basic Usage
@@ -55,26 +52,14 @@ python aqua_license_util.py show
 # Show license information in table format
 python aqua_license_util.py show -v
 
-# Generate license breakdown
+# Generate license breakdown (JSON output)
 python aqua_license_util.py breakdown
+
+# Generate license breakdown in table format
+python aqua_license_util.py breakdown -v
 
 # Export to files
 python aqua_license_util.py breakdown --csv-file report.csv --json-file report.json
-```
-
-### Using Docker
-
-```bash
-# Run with saved profile
-docker run -v ~/.aqua:/root/.aqua ghcr.io/andreazorzetto/aquasec-license-util:latest show
-
-# Run with environment variables
-docker run --env-file aqua.env ghcr.io/andreazorzetto/aquasec-license-util:latest breakdown
-
-# Export files to host
-docker run -v ~/.aqua:/root/.aqua -v $(pwd):/output \
-  ghcr.io/andreazorzetto/aquasec-license-util:latest \
-  breakdown --csv-file /output/report.csv
 ```
 
 ## Output Modes
@@ -88,19 +73,13 @@ docker run -v ~/.aqua:/root/.aqua -v $(pwd):/output \
 If you prefer environment variables over the setup wizard:
 
 ```bash
-# API Keys (recommended)
-export AQUA_KEY=your-api-key
-export AQUA_SECRET=your-api-secret
-export AQUA_ROLE=Administrator
-export AQUA_METHODS=ANY
-export AQUA_ENDPOINT='https://api.cloudsploit.com'
-export CSP_ENDPOINT='https://xyz.cloud.aquasec.com'
-
-# Username/Password
+# Username/Password (Required)
 export AQUA_USER=your-email@company.com
 export AQUA_PASSWORD=your-password
 export CSP_ENDPOINT='https://xyz.cloud.aquasec.com'
 ```
+
+**Note**: This utility requires username/password authentication. API key authentication is not supported in this implementation.
 
 ## Profile Management
 
@@ -123,8 +102,7 @@ python aqua_license_util.py show --profile production
 # GitHub Actions example
 - name: Check Aqua License Usage
   run: |
-    docker run -v ${{ secrets.AQUA_CREDS }}:/root/.aqua \
-      ghcr.io/andreazorzetto/aquasec-license-util:latest show > license.json
+    python aqua_license_util.py show > license.json
     
     # Process the JSON output
     jq '.num_repositories' license.json
@@ -135,8 +113,7 @@ python aqua_license_util.py show --profile production
 ```bash
 #!/bin/bash
 # Get license data as JSON
-LICENSE_DATA=$(docker run -v ~/.aqua:/root/.aqua \
-  ghcr.io/andreazorzetto/aquasec-license-util:latest show)
+LICENSE_DATA=$(python aqua_license_util.py show)
 
 # Extract metrics
 REPOS=$(echo "$LICENSE_DATA" | jq '.num_repositories')

@@ -224,10 +224,7 @@ def main():
         profile_loaded = load_profile_credentials(args.profile)
     
     # Check if credentials are available (either from profile or environment)
-    has_creds = (
-        (os.environ.get('AQUA_KEY') and os.environ.get('AQUA_SECRET')) or
-        os.environ.get('AQUA_USER')
-    )
+    has_creds = os.environ.get('AQUA_USER')
     
     if not has_creds:
         if args.verbose:
