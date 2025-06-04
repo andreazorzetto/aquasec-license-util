@@ -22,6 +22,7 @@ from aquasec import (
     get_app_scopes,
     get_repo_count_by_scope,
     get_enforcer_count_by_scope,
+    get_code_repo_count_by_scope,
     api_get_dta_license,
     api_post_dta_license_utilization,
     write_json_to_file,
@@ -88,11 +89,21 @@ def license_breakdown(server, token, verbose=False, debug=False, csv_file=None, 
     if debug:
         print("DEBUG: Enforcer count by scope:", json.dumps(enforcer_count_by_scope), "\n")
 
-    # put scopes, repos and enforcers data together
+    # get code repositories count by scope
+    code_repo_count_by_scope = get_code_repo_count_by_scope(server, token, scopes_list, debug)
+    if debug:
+        print("DEBUG: Code repo count by scope:", json.dumps(code_repo_count_by_scope), "\n")
+
+    # put scopes, repos, code repos and enforcers data together
     breakdown_data = {}
     for key, value in repo_count_by_scope.items():
         if key in enforcer_count_by_scope:
-            breakdown_data[key] = {"scope name": key, "repos": value, **enforcer_count_by_scope[key]}
+            breakdown_data[key] = {
+                "scope name": key, 
+                "repos": value,
+                "code_repos": code_repo_count_by_scope.get(key, 0),
+                **enforcer_count_by_scope[key]
+            }
 
     # write csv - silent unless verbose
     if csv_file:
@@ -109,16 +120,13 @@ def license_breakdown(server, token, verbose=False, debug=False, csv_file=None, 
     if verbose:
         # Human-readable table format
         table = PrettyTable()
-        table.field_names = ["Scope", "Repos", "Agents",
-                            "Kube Enforcers",
-                            "Host Enforcers",
-                            "Micro Enforcers",
-                            "Nano Enforcers",
-                            "Pod Enforcers"]
+        table.field_names = ["Scope", "Images", "Code", "Agents",
+                            "Kube", "Host", "Micro", "Nano", "Pod"]
         
         for scope, details in breakdown_data.items():
             row = [details["scope name"],
                     details["repos"],
+                    details.get("code_repos", 0),
                     details["agent"]["connected"],
                     details["kube_enforcer"]["connected"],
                     details["host_enforcer"]["connected"],
@@ -139,31 +147,34 @@ def main():
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
+    # Create parent parser for common arguments
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument('-v', '--verbose', action='store_true', help='Show human-readable output instead of JSON')
+    parent_parser.add_argument('-d', '--debug', action='store_true', help='Show debug output including API calls')
+    parent_parser.add_argument('-p', '--profile', default='default', help='Configuration profile to use')
+    
     parser = argparse.ArgumentParser(
         description='Aqua License Utility - Extract license utilization from Aqua Security platform',
-        prog='aqua_license_util'
+        prog='aqua_license_util',
+        parents=[parent_parser]
     )
     
-    parser.add_argument('-v', '--verbose', action='store_true', help='Show human-readable output instead of JSON')
-    parser.add_argument('-d', '--debug', action='store_true', help='Show debug output including API calls')
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
-    parser.add_argument('-p', '--profile', default='default', help='Configuration profile to use')
     
     # Create subparsers for commands
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
     # Setup command
-    setup_parser = subparsers.add_parser('setup', help='Interactive setup wizard')
-    setup_parser.add_argument('--profile', default='default', help='Profile name to create')
+    setup_parser = subparsers.add_parser('setup', help='Interactive setup wizard', parents=[parent_parser])
     
     # Profiles command
-    profiles_parser = subparsers.add_parser('profiles', help='List available profiles')
+    profiles_parser = subparsers.add_parser('profiles', help='List available profiles', parents=[parent_parser])
     
     # License show command
-    show_parser = subparsers.add_parser('show', help='Show license information (JSON by default, use -v for table)')
+    show_parser = subparsers.add_parser('show', help='Show license information (JSON by default, use -v for table)', parents=[parent_parser])
     
     # License breakdown command
-    breakdown_parser = subparsers.add_parser('breakdown', help='Show license breakdown by application scope (JSON by default, use -v for table)')
+    breakdown_parser = subparsers.add_parser('breakdown', help='Show license breakdown by application scope (JSON by default, use -v for table)', parents=[parent_parser])
     breakdown_parser.add_argument('--csv-file', dest='csv_file', action='store', 
                                 help='Export to CSV file')
     breakdown_parser.add_argument('--json-file', dest='json_file', action='store', 
