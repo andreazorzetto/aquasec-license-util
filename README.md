@@ -72,11 +72,34 @@ python aqua_license_util.py breakdown --csv-file report.csv --json-file report.j
 
 If you prefer environment variables over the setup wizard:
 
+### For SaaS Deployments
+
 ```bash
 # Username/Password (Required)
 export AQUA_USER=your-email@company.com
 export AQUA_PASSWORD=your-password
-export CSP_ENDPOINT='https://xyz.cloud.aquasec.com'
+
+# Endpoints (Required)
+export CSP_ENDPOINT='https://xyz.cloud.aquasec.com'  # Your Aqua Console URL
+export AQUA_ENDPOINT='https://api.cloudsploit.com'   # Regional API endpoint
+
+# Regional API Endpoints:
+# - US Region: https://api.cloudsploit.com
+# - EU-1 Region: https://eu-1.api.cloudsploit.com
+# - Asia Region: https://asia-1.api.cloudsploit.com
+```
+
+### For On-Premise Deployments
+
+```bash
+# Username/Password (Required)
+export AQUA_USER=your-email@company.com
+export AQUA_PASSWORD=your-password
+
+# Console Endpoint (Required)
+export CSP_ENDPOINT='https://aqua.company.internal'  # Your Aqua Console URL
+
+# Note: Do NOT set AQUA_ENDPOINT for on-premise deployments
 ```
 
 **Note**: This utility requires username/password authentication. API key authentication is not supported in this implementation.
