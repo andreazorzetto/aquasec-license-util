@@ -22,7 +22,6 @@ from aquasec import (
     get_app_scopes,
     get_repo_count_by_scope,
     get_enforcer_count_by_scope,
-    get_code_repo_count_by_scope,
     api_get_dta_license,
     api_post_dta_license_utilization,
     write_json_to_file,
@@ -32,6 +31,13 @@ from aquasec import (
     interactive_setup,
     list_profiles
 )
+
+# Try to import get_code_repo_count_by_scope if available
+try:
+    from aquasec import get_code_repo_count_by_scope
+except ImportError:
+    # Function not available in this version
+    get_code_repo_count_by_scope = None
 
 # Version
 __version__ = "0.2.0"
@@ -90,9 +96,14 @@ def license_breakdown(server, token, verbose=False, debug=False, csv_file=None, 
         print("DEBUG: Enforcer count by scope:", json.dumps(enforcer_count_by_scope), "\n")
 
     # get code repositories count by scope
-    code_repo_count_by_scope = get_code_repo_count_by_scope(server, token, scopes_list, debug)
-    if debug:
-        print("DEBUG: Code repo count by scope:", json.dumps(code_repo_count_by_scope), "\n")
+    if get_code_repo_count_by_scope is not None:
+        code_repo_count_by_scope = get_code_repo_count_by_scope(server, token, scopes_list, debug)
+        if debug:
+            print("DEBUG: Code repo count by scope:", json.dumps(code_repo_count_by_scope), "\n")
+    else:
+        code_repo_count_by_scope = {}
+        if debug:
+            print("DEBUG: Code repo count by scope: Not available in this version\n")
 
     # put scopes, repos, code repos and enforcers data together
     breakdown_data = {}
@@ -198,7 +209,7 @@ def main():
         if not args.verbose:
             # JSON output by default
             profile_data = []
-            from aqua import ConfigManager
+            from aquasec import ConfigManager
             config_mgr = ConfigManager()
             profiles = config_mgr.list_profiles()
             if not profiles:
@@ -206,11 +217,15 @@ def main():
             else:
                 for profile in profiles:
                     config = config_mgr.load_config(profile)
-                    profile_data.append({
+                    profile_info = {
                         "name": profile,
                         "auth_method": config.get('auth_method', 'unknown'),
-                        "endpoint": config.get('csp_endpoint', 'unknown')
-                    })
+                        "csp_endpoint": config.get('csp_endpoint', 'unknown')
+                    }
+                    # Add api_endpoint if it exists (for SaaS deployments)
+                    if 'api_endpoint' in config:
+                        profile_info['api_endpoint'] = config['api_endpoint']
+                    profile_data.append(profile_info)
                 print(json.dumps(profile_data, indent=2))
         else:
             # Verbose mode shows human-readable output
@@ -237,6 +252,14 @@ def main():
             # JSON error output
             print(json.dumps({"error": "No credentials found. Run 'setup' command or set environment variables."}))
         sys.exit(1)
+    
+    # Print version info in debug mode
+    if args.debug:
+        import aquasec
+        print(f"DEBUG: Aqua License Utility version: {__version__}")
+        print(f"DEBUG: Aquasec library version: {aquasec.__version__}")
+        print(f"DEBUG: Aquasec library location: {aquasec.__file__}")
+        print()
     
     # Authenticate
     try:
