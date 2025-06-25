@@ -158,40 +158,77 @@ def main():
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     
-    # Create parent parser for common arguments
-    parent_parser = argparse.ArgumentParser(add_help=False)
-    parent_parser.add_argument('-v', '--verbose', action='store_true', help='Show human-readable output instead of JSON')
-    parent_parser.add_argument('-d', '--debug', action='store_true', help='Show debug output including API calls')
-    parent_parser.add_argument('-p', '--profile', default='default', help='Configuration profile to use')
+    # Custom argument parsing to support global options anywhere
+    # First, let's identify if we have a command and extract global args
+    raw_args = sys.argv[1:]
     
+    # Extract global arguments regardless of position
+    global_args = {
+        'verbose': False,
+        'debug': False,
+        'profile': 'default'
+    }
+    
+    # Check for version first
+    if '--version' in raw_args:
+        print(f'aqua_license_util {__version__}')
+        sys.exit(0)
+    
+    # Extract global flags from anywhere in the command line
+    filtered_args = []
+    i = 0
+    while i < len(raw_args):
+        arg = raw_args[i]
+        if arg in ['-v', '--verbose']:
+            global_args['verbose'] = True
+        elif arg in ['-d', '--debug']:
+            global_args['debug'] = True
+        elif arg in ['-p', '--profile']:
+            if i + 1 < len(raw_args):
+                global_args['profile'] = raw_args[i + 1]
+                i += 1  # Skip the profile value
+        else:
+            filtered_args.append(arg)
+        i += 1
+    
+    # Now parse with the filtered args
     parser = argparse.ArgumentParser(
         description='Aqua License Utility - Extract license utilization from Aqua Security platform',
         prog='aqua_license_util',
-        parents=[parent_parser]
+        epilog='Global options can be placed before or after the command:\n'
+               '  -v, --verbose        Show human-readable output instead of JSON\n'
+               '  -d, --debug          Show debug output including API calls\n'
+               '  -p, --profile        Configuration profile to use (default: default)\n'
+               '  --version            Show program version',
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    
-    parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     
     # Create subparsers for commands
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
     
     # Setup command
-    setup_parser = subparsers.add_parser('setup', help='Interactive setup wizard', parents=[parent_parser])
+    setup_parser = subparsers.add_parser('setup', help='Interactive setup wizard')
     
     # Profiles command
-    profiles_parser = subparsers.add_parser('profiles', help='List available profiles', parents=[parent_parser])
+    profiles_parser = subparsers.add_parser('profiles', help='List available profiles')
     
     # License show command
-    show_parser = subparsers.add_parser('show', help='Show license information (JSON by default, use -v for table)', parents=[parent_parser])
+    show_parser = subparsers.add_parser('show', help='Show license information (JSON by default, use -v for table)')
     
     # License breakdown command
-    breakdown_parser = subparsers.add_parser('breakdown', help='Show license breakdown by application scope (JSON by default, use -v for table)', parents=[parent_parser])
+    breakdown_parser = subparsers.add_parser('breakdown', help='Show license breakdown by application scope (JSON by default, use -v for table)')
     breakdown_parser.add_argument('--csv-file', dest='csv_file', action='store', 
                                 help='Export to CSV file')
     breakdown_parser.add_argument('--json-file', dest='json_file', action='store', 
                                 help='Export to JSON file')
     
-    args = parser.parse_args()
+    # Parse the filtered arguments
+    args = parser.parse_args(filtered_args)
+    
+    # Add global args to the namespace
+    args.verbose = global_args['verbose']
+    args.debug = global_args['debug']
+    args.profile = global_args['profile']
     
     # Show help if no command provided
     if args.command is None:
@@ -290,8 +327,18 @@ def main():
     # Execute commands
     try:
         if args.command == 'show':
+            # Debug: Show which endpoint we're using
+            if args.debug:
+                print(f"DEBUG: Using CSP endpoint for license API: {csp_endpoint}")
+                api_endpoint = os.environ.get('AQUA_ENDPOINT')
+                if api_endpoint:
+                    print(f"DEBUG: API endpoint available: {api_endpoint}")
+            
             license_show(csp_endpoint, token, args.verbose, args.debug)
         elif args.command == 'breakdown':
+            if args.debug:
+                print(f"DEBUG: Using CSP endpoint for license API: {csp_endpoint}")
+            
             license_breakdown(csp_endpoint, token, args.verbose, args.debug, 
                             args.csv_file, args.json_file)
     except KeyboardInterrupt:
