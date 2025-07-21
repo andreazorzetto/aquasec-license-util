@@ -273,6 +273,7 @@ def main():
     
     # Setup command
     setup_parser = subparsers.add_parser('setup', help='Interactive setup wizard')
+    setup_parser.add_argument('profile_name', nargs='?', help='Profile name to create/update (optional)')
     
     # Profile command with subcommands
     profile_parser = subparsers.add_parser('profile', help='Manage configuration profiles')
@@ -324,8 +325,13 @@ def main():
     
     # Handle setup command
     if args.command == 'setup':
-        # Pass profile name if provided via -p flag
-        profile_name = args.profile if args.profile != 'default' else None
+        # Use positional argument if provided, otherwise fall back to -p flag
+        if hasattr(args, 'profile_name') and args.profile_name:
+            profile_name = args.profile_name
+        elif args.profile != 'default':
+            profile_name = args.profile
+        else:
+            profile_name = None
         success = interactive_setup(profile_name, debug=args.debug)
         sys.exit(0 if success else 1)
     

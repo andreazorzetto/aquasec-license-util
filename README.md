@@ -39,8 +39,13 @@ pip install aquasec
 ### Initial Setup
 
 ```bash
-# Interactive setup wizard
+# Interactive setup wizard (creates/updates default profile)
 python aqua_license_util.py setup
+
+# Setup a specific profile
+python aqua_license_util.py setup myprofile
+# or
+python aqua_license_util.py setup -p myprofile
 ```
 
 ### Basic Usage
