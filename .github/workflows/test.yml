@@ -25,12 +25,14 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         
-        # Try to install full requirements, fall back to test requirements if it fails
-        if pip install -r requirements.txt; then
-          echo "✓ Successfully installed all requirements including aquasec"
+        # Always install test requirements first
+        pip install -r requirements-test.txt
+        
+        # Try to install aquasec if available
+        if pip install aquasec>=0.3.3 2>/dev/null; then
+          echo "✓ Successfully installed aquasec from PyPI"
         else
-          echo "⚠️  aquasec not available on PyPI, installing test requirements only"
-          pip install -r requirements-test.txt
+          echo "⚠️ aquasec not available on PyPI, continuing with test dependencies only"
         fi
     
     - name: Run tests
