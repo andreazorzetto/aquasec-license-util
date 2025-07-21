@@ -5,8 +5,8 @@ A focused tool for extracting license utilization from Aqua Security platform
 
 Usage:
     python aqua_license_util.py setup                  # Interactive setup
-    python aqua_license_util.py show                   # Show license info (JSON)
-    python aqua_license_util.py breakdown              # Show breakdown (JSON)
+    python aqua_license_util.py license show           # Show license info (JSON)
+    python aqua_license_util.py license breakdown      # Show breakdown (JSON)
 """
 
 import argparse
@@ -15,51 +15,105 @@ import sys
 import os
 from prettytable import PrettyTable
 
-# Import aquasec library modules
+# Import from aquasec library
 from aquasec import (
     authenticate,
+    get_all_licenses,
     get_licences,
     get_app_scopes,
     get_repo_count_by_scope,
     get_enforcer_count_by_scope,
+    get_code_repo_count_by_scope,
     api_get_dta_license,
     api_post_dta_license_utilization,
     write_json_to_file,
     generate_csv_for_license_breakdown,
-    # Configuration management
     load_profile_credentials,
     interactive_setup,
-    list_profiles
+    list_profiles,
+    ConfigManager,
+    get_profile_info,
+    get_all_profiles_info,
+    format_profile_info,
+    delete_profile_with_result,
+    set_default_profile_with_result,
+    profile_not_found_response,
+    profile_operation_response
 )
 
-# Try to import get_code_repo_count_by_scope if available
-try:
-    from aquasec import get_code_repo_count_by_scope
-except ImportError:
-    # Function not available in this version
-    get_code_repo_count_by_scope = None
-
 # Version
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 def license_show(server, token, verbose=False, debug=False):
     """Show license information"""
-    # get the license information
-    licenses = get_licences(server, token, debug)
-
+    # Get all licenses data
+    all_licenses_data = get_all_licenses(server, token, debug)
+    if not all_licenses_data:
+        return
+    
+    # Extract totals from resources.active_production
+    active_production = all_licenses_data.get('resources', {}).get('active_production', {})
+    num_active = all_licenses_data.get('details', {}).get('num_active', 0)
+    
     if verbose:
-        # Human-readable table format
-        table = PrettyTable(["License", "Value"])
-        for key, value in licenses.items():
-            table.add_row([key, value])
-        print(table)
+        # Show single table with totals
+        if active_production:
+            table = PrettyTable(["Product", "Total Limit"])
+            table.align["Product"] = "l"
+            table.align["Total Limit"] = "r"
+            
+            fields = [
+                ('num_repositories', 'Image Repositories'),
+                ('num_enforcers', 'Enforcers'),
+                ('num_microenforcers', 'Micro-enforcers'),
+                ('num_vm_enforcers', 'VM Enforcers'),
+                ('num_functions', 'Functions'),
+                ('num_code_repositories', 'Code Repositories'),
+                ('num_advanced_functions', 'Advanced Functions'),
+                ('num_protected_kube_nodes', 'Protected K8s Nodes'),
+                ('vshield', 'vShield'),
+                ('malware_protection', 'Malware Protection')
+            ]
+            
+            for field, display_name in fields:
+                value = active_production.get(field, 0)
+                if field in ['vshield', 'malware_protection']:
+                    display_value = "Yes" if value else "No"
+                else:
+                    display_value = "Unlimited" if value == -1 else f"{value:,}"
+                table.add_row([display_name, display_value])
+            
+            # Add number of active licenses
+            table.add_row(['Active Licenses', num_active])
+            
+            # Add DTA repos if present
+            if 'dta_repos' in active_production:
+                table.add_row(['DTA Repositories', f"{active_production['dta_repos']:,}"])
+            
+            print(table)
+        else:
+            print("No active production license totals found")
     else:
-        # JSON output by default
-        print(json.dumps(licenses, indent=2))
+        # JSON output - return only the totals
+        totals = {}
+        
+        if active_production:
+            # Copy all fields from active_production
+            for key, value in active_production.items():
+                # Convert -1 to "unlimited" for numeric fields
+                if isinstance(value, int) and value == -1 and key not in ['dta_repos']:
+                    totals[key] = "unlimited"
+                else:
+                    totals[key] = value
+        
+        # Add num_active
+        totals['num_active'] = num_active
+        
+        print(json.dumps(totals, indent=2))
 
 
-def license_breakdown(server, token, verbose=False, debug=False, csv_file=None, json_file=None):
+def license_breakdown(server, token, verbose=False, debug=False, csv_file=None, json_file=None, skip_repos=False):
     """Provide license usage breakdown per application scope"""
     # get the license information
     licenses = get_licences(server, token, debug)
@@ -86,17 +140,28 @@ def license_breakdown(server, token, verbose=False, debug=False, csv_file=None, 
         print("DEBUG: Scopes:", scopes_list, "\n")
 
     # get the count of scopes per repo
-    repo_count_by_scope = get_repo_count_by_scope(server, token, scopes_list)
-    if debug:
-        print("DEBUG: Repo count by scope:", json.dumps(repo_count_by_scope), "\n")
+    if skip_repos:
+        repo_count_by_scope = {scope: 0 for scope in scopes_list}
+        if verbose:
+            print("Skipping repository counting...")
+        if debug:
+            print("DEBUG: Repo count by scope: Skipped\n")
+    else:
+        repo_count_by_scope = get_repo_count_by_scope(server, token, scopes_list, debug)
+        if debug:
+            print("DEBUG: Repo count by scope:", json.dumps(repo_count_by_scope), "\n")
 
     # get enforcers count by scope
-    enforcer_count_by_scope = get_enforcer_count_by_scope(server, token, scopes_list)
+    enforcer_count_by_scope = get_enforcer_count_by_scope(server, token, scopes_list, debug)
     if debug:
         print("DEBUG: Enforcer count by scope:", json.dumps(enforcer_count_by_scope), "\n")
 
     # get code repositories count by scope
-    if get_code_repo_count_by_scope is not None:
+    if skip_repos:
+        code_repo_count_by_scope = {scope: 0 for scope in scopes_list}
+        if debug:
+            print("DEBUG: Code repo count by scope: Skipped\n")
+    elif get_code_repo_count_by_scope is not None:
         code_repo_count_by_scope = get_code_repo_count_by_scope(server, token, scopes_list, debug)
         if debug:
             print("DEBUG: Code repo count by scope:", json.dumps(code_repo_count_by_scope), "\n")
@@ -209,18 +274,40 @@ def main():
     # Setup command
     setup_parser = subparsers.add_parser('setup', help='Interactive setup wizard')
     
-    # Profiles command
-    profiles_parser = subparsers.add_parser('profiles', help='List available profiles')
+    # Profile command with subcommands
+    profile_parser = subparsers.add_parser('profile', help='Manage configuration profiles')
+    profile_subparsers = profile_parser.add_subparsers(dest='profile_command', help='Profile management commands')
     
-    # License show command
-    show_parser = subparsers.add_parser('show', help='Show license information (JSON by default, use -v for table)')
+    # Profile list
+    profile_list_parser = profile_subparsers.add_parser('list', help='List available profiles')
     
-    # License breakdown command
-    breakdown_parser = subparsers.add_parser('breakdown', help='Show license breakdown by application scope (JSON by default, use -v for table)')
-    breakdown_parser.add_argument('--csv-file', dest='csv_file', action='store', 
+    # Profile show
+    profile_show_parser = profile_subparsers.add_parser('show', help='Show profile details')
+    profile_show_parser.add_argument('name', nargs='?', help='Profile name to show (defaults to current default profile)')
+    
+    # Profile delete
+    profile_delete_parser = profile_subparsers.add_parser('delete', help='Delete a profile')
+    profile_delete_parser.add_argument('name', help='Profile name to delete')
+    
+    # Profile set-default
+    profile_default_parser = profile_subparsers.add_parser('set-default', help='Set default profile')
+    profile_default_parser.add_argument('name', help='Profile name to set as default')
+    
+    # License command with subcommands
+    license_parser = subparsers.add_parser('license', help='License management commands')
+    license_subparsers = license_parser.add_subparsers(dest='license_command', help='License commands')
+    
+    # License show
+    license_show_parser = license_subparsers.add_parser('show', help='Show license information (JSON by default, use -v for table)')
+    
+    # License breakdown
+    license_breakdown_parser = license_subparsers.add_parser('breakdown', help='Show license breakdown by application scope (JSON by default, use -v for table)')
+    license_breakdown_parser.add_argument('--csv-file', dest='csv_file', action='store', 
                                 help='Export to CSV file')
-    breakdown_parser.add_argument('--json-file', dest='json_file', action='store', 
+    license_breakdown_parser.add_argument('--json-file', dest='json_file', action='store', 
                                 help='Export to JSON file')
+    license_breakdown_parser.add_argument('--skip-repos', dest='skip_repos', action='store_true',
+                                help='Skip image and code repository counting (faster, enforcers only)')
     
     # Parse the filtered arguments
     args = parser.parse_args(filtered_args)
@@ -237,43 +324,100 @@ def main():
     
     # Handle setup command
     if args.command == 'setup':
-        profile = args.profile if hasattr(args, 'profile') and args.profile else 'default'
-        success = interactive_setup(profile)
+        # Pass profile name if provided via -p flag
+        profile_name = args.profile if args.profile != 'default' else None
+        success = interactive_setup(profile_name, debug=args.debug)
         sys.exit(0 if success else 1)
     
-    # Handle profiles command
-    if args.command == 'profiles':
-        if not args.verbose:
-            # JSON output by default
-            profile_data = []
-            from aquasec import ConfigManager
-            config_mgr = ConfigManager()
-            profiles = config_mgr.list_profiles()
-            if not profiles:
-                print(json.dumps([], indent=2))
-            else:
-                for profile in profiles:
-                    config = config_mgr.load_config(profile)
-                    profile_info = {
-                        "name": profile,
-                        "auth_method": config.get('auth_method', 'unknown'),
-                        "csp_endpoint": config.get('csp_endpoint', 'unknown')
-                    }
-                    # Add api_endpoint if it exists (for SaaS deployments)
-                    if 'api_endpoint' in config:
-                        profile_info['api_endpoint'] = config['api_endpoint']
-                    profile_data.append(profile_info)
+    # Handle profile commands
+    if args.command == 'profile':
+        config_mgr = ConfigManager()
+        
+        # Handle profile list
+        if args.profile_command == 'list':
+            if not args.verbose:
+                # JSON output by default
+                profile_data = get_all_profiles_info()
                 print(json.dumps(profile_data, indent=2))
+            else:
+                # Verbose mode shows human-readable output
+                list_profiles(verbose=True)
+            sys.exit(0)
+        
+        # Handle profile show
+        elif args.profile_command == 'show':
+            # If no name provided, use the default profile
+            if args.name is None:
+                config_mgr = ConfigManager()
+                profile_name = config_mgr.get_default_profile()
+            else:
+                profile_name = args.name
+            
+            profile_info = get_profile_info(profile_name)
+            if not profile_info:
+                print(profile_not_found_response(profile_name, 'text' if args.verbose else 'json'))
+                sys.exit(1)
+            
+            print(format_profile_info(profile_info, 'text' if args.verbose else 'json'))
+            sys.exit(0)
+        
+        # Handle profile delete
+        elif args.profile_command == 'delete':
+            result = delete_profile_with_result(args.name)
+            print(profile_operation_response(
+                result['action'],
+                result['profile'],
+                result['success'],
+                result.get('error'),
+                'text' if args.verbose else 'json'
+            ))
+            sys.exit(0 if result['success'] else 1)
+        
+        # Handle profile set-default
+        elif args.profile_command == 'set-default':
+            result = set_default_profile_with_result(args.name)
+            print(profile_operation_response(
+                result['action'],
+                result['profile'],
+                result['success'],
+                result.get('error'),
+                'text' if args.verbose else 'json'
+            ))
+            sys.exit(0 if result['success'] else 1)
+        
+        # No subcommand specified
         else:
-            # Verbose mode shows human-readable output
-            list_profiles(verbose=True)
-        sys.exit(0)
+            print("Error: No profile subcommand specified")
+            print("\nAvailable profile commands:")
+            print("  profile list              List all profiles")
+            print("  profile show <name>       Show profile details")
+            print("  profile delete <name>     Delete a profile")
+            print("  profile set-default <name> Set default profile")
+            print("\nExample: python aqua_license_util.py profile list")
+            sys.exit(1)
+    
+    # Handle license commands
+    if args.command == 'license':
+        # No subcommand specified
+        if not hasattr(args, 'license_command') or args.license_command is None:
+            print("Error: No license subcommand specified")
+            print("\nAvailable license commands:")
+            print("  license show              Show license information")
+            print("  license breakdown         Show license breakdown by scope")
+            print("\nExample: python aqua_license_util.py license show")
+            sys.exit(1)
     
     # For other commands, we need authentication
     # First try to load from profile
     profile_loaded = False
+    actual_profile = args.profile
     if hasattr(args, 'profile'):
-        profile_loaded = load_profile_credentials(args.profile)
+        result = load_profile_credentials(args.profile)
+        if isinstance(result, tuple):
+            profile_loaded, actual_profile = result
+        else:
+            # Backward compatibility if someone is using old version
+            profile_loaded = result
     
     # Check if credentials are available (either from profile or environment)
     has_creds = os.environ.get('AQUA_USER')
@@ -292,16 +436,13 @@ def main():
     
     # Print version info in debug mode
     if args.debug:
-        import aquasec
         print(f"DEBUG: Aqua License Utility version: {__version__}")
-        print(f"DEBUG: Aquasec library version: {aquasec.__version__}")
-        print(f"DEBUG: Aquasec library location: {aquasec.__file__}")
         print()
     
     # Authenticate
     try:
         if profile_loaded and args.verbose:
-            print(f"Using profile: {args.profile}")
+            print(f"Using profile: {actual_profile}")
         if args.verbose:
             print("Authenticating with Aqua Security platform...")
         token = authenticate(verbose=args.debug)
@@ -326,7 +467,7 @@ def main():
     
     # Execute commands
     try:
-        if args.command == 'show':
+        if args.command == 'license' and args.license_command == 'show':
             # Debug: Show which endpoint we're using
             if args.debug:
                 print(f"DEBUG: Using CSP endpoint for license API: {csp_endpoint}")
@@ -335,12 +476,12 @@ def main():
                     print(f"DEBUG: API endpoint available: {api_endpoint}")
             
             license_show(csp_endpoint, token, args.verbose, args.debug)
-        elif args.command == 'breakdown':
+        elif args.command == 'license' and args.license_command == 'breakdown':
             if args.debug:
                 print(f"DEBUG: Using CSP endpoint for license API: {csp_endpoint}")
             
             license_breakdown(csp_endpoint, token, args.verbose, args.debug, 
-                            args.csv_file, args.json_file)
+                            args.csv_file, args.json_file, args.skip_repos)
     except KeyboardInterrupt:
         if args.verbose:
             print('\nExecution interrupted by user')

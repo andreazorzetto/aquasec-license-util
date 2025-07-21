@@ -18,7 +18,7 @@ A command-line tool for extracting and analyzing license utilization data from A
 git clone https://github.com/andreazorzetto/aquasec-license-util.git
 cd aquasec-license-util
 
-# Optionally create a Python vitrual environment
+# Optionally create a Python virtual environment
 python -m venv .venv
 source .venv/bin/activate
 
@@ -47,26 +47,26 @@ python aqua_license_util.py setup
 
 ```bash
 # Show license information (JSON output)
-python aqua_license_util.py show
+python aqua_license_util.py license show
 
 # Show license information in table format
-python aqua_license_util.py show -v
+python aqua_license_util.py license show -v
 
 # Generate license breakdown (JSON output)
-python aqua_license_util.py breakdown
+python aqua_license_util.py license breakdown
 
 # Generate license breakdown in table format
-python aqua_license_util.py breakdown -v
+python aqua_license_util.py license breakdown -v
 
 # Export to files
-python aqua_license_util.py breakdown --csv-file report.csv --json-file report.json
+python aqua_license_util.py license breakdown --csv-file report.csv --json-file report.json
 ```
 
 ## Output Modes
 
-1. **Default**: Clean JSON output only
-2. **Verbose (-v)**: Human-readable tables and messages
-3. **Debug (-d)**: Detailed execution with API calls
+1. **Default**: Clean JSON output with license totals only
+2. **Verbose (-v)**: Human-readable table format showing license details
+3. **Debug (-d)**: Detailed execution with API calls and debugging information (includes all API URLs for repository and enforcer counting)
 
 ## Environment Variables
 
@@ -106,16 +106,41 @@ export CSP_ENDPOINT='https://aqua.company.internal'  # Your Aqua Console URL
 
 ## Profile Management
 
+Manage multiple Aqua environments with profiles:
+
 ```bash
-# List profiles
-python aqua_license_util.py profiles
+# List all profiles
+python aqua_license_util.py profile list
 
-# Create a new profile
-python aqua_license_util.py setup --profile production
+# Show profile details
+python aqua_license_util.py profile show production
 
-# Use specific profile
-python aqua_license_util.py show --profile production
+# Show default profile (without specifying name)
+python aqua_license_util.py profile show
+
+# Delete a profile
+python aqua_license_util.py profile delete old-profile
+
+# Set default profile
+python aqua_license_util.py profile set-default production
+
+# Use specific profile with any command
+python aqua_license_util.py -p production license show
 ```
+
+## Command Reference
+
+### License Commands
+
+- `license show` - Display license totals (JSON by default, use -v for table)
+- `license breakdown` - Show license usage per application scope
+
+### Profile Commands
+
+- `profile list` - List all configured profiles
+- `profile show [name]` - Display profile details (defaults to current default profile)
+- `profile delete <name>` - Remove a profile
+- `profile set-default <name>` - Set the default profile
 
 ## Examples
 
@@ -125,7 +150,7 @@ python aqua_license_util.py show --profile production
 # GitHub Actions example
 - name: Check Aqua License Usage
   run: |
-    python aqua_license_util.py show > license.json
+    python aqua_license_util.py license show > license.json
     
     # Process the JSON output
     jq '.num_repositories' license.json
@@ -136,7 +161,7 @@ python aqua_license_util.py show --profile production
 ```bash
 #!/bin/bash
 # Get license data as JSON
-LICENSE_DATA=$(python aqua_license_util.py show)
+LICENSE_DATA=$(python aqua_license_util.py license show)
 
 # Extract metrics
 REPOS=$(echo "$LICENSE_DATA" | jq '.num_repositories')
