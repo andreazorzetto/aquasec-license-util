@@ -5,8 +5,9 @@ A focused tool for extracting license utilization from Aqua Security platform
 
 Usage:
     python aqua_license_util.py setup                  # Interactive setup
-    python aqua_license_util.py license show           # Show license info (JSON)
-    python aqua_license_util.py license breakdown      # Show breakdown (JSON)
+    python aqua_license_util.py license show           # Show license limits (JSON)
+    python aqua_license_util.py license count          # Show utilization vs limits (JSON)  
+    python aqua_license_util.py license breakdown      # Show per-scope breakdown (JSON)
 """
 
 import argparse
@@ -24,6 +25,7 @@ from aquasec import (
     get_repo_count_by_scope,
     get_enforcer_count_by_scope,
     get_code_repo_count_by_scope,
+    get_function_count,
     api_get_dta_license,
     api_post_dta_license_utilization,
     write_json_to_file,
@@ -42,7 +44,7 @@ from aquasec import (
 )
 
 # Version
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 
 def license_show(server, token, verbose=False, debug=False):
@@ -65,7 +67,6 @@ def license_show(server, token, verbose=False, debug=False):
             
             fields = [
                 ('num_repositories', 'Image Repositories'),
-                ('num_enforcers', 'Enforcers'),
                 ('num_microenforcers', 'Micro-enforcers'),
                 ('num_vm_enforcers', 'VM Enforcers'),
                 ('num_functions', 'Functions'),
@@ -113,6 +114,146 @@ def license_show(server, token, verbose=False, debug=False):
         print(json.dumps(totals, indent=2))
 
 
+def license_count(server, token, verbose=False, debug=False):
+    """Show actual license utilization totals across all scopes"""
+    # Get license limits
+    licenses = get_licences(server, token, debug)
+    if not licenses:
+        if verbose:
+            print("No license information found")
+        else:
+            print(json.dumps({"error": "No license information found"}))
+        return
+    
+    if debug:
+        print("DEBUG: Getting total counts (using Global scope)")
+    
+    # Get total repository count using library function
+    from aquasec import get_repo_count
+    total_repos = 0
+    try:
+        total_repos = get_repo_count(server, token, verbose=debug)
+        if debug:
+            print(f"DEBUG: Total repositories: {total_repos}")
+    except Exception as e:
+        if debug:
+            print(f"DEBUG: Failed to get repository count: {e}")
+    
+    # Get code repository count
+    total_code_repos = 0
+    try:
+        from aquasec import get_code_repo_count
+        total_code_repos = get_code_repo_count(server, token, verbose=debug)
+        if debug:
+            print(f"DEBUG: Total code repositories: {total_code_repos}")
+    except Exception as e:
+        if debug:
+            print(f"DEBUG: Code repository counting not available: {e}")
+    
+    # Get functions count
+    total_functions = 0
+    try:
+        total_functions = get_function_count(server, token, verbose=debug)
+        if debug:
+            print(f"DEBUG: Total functions: {total_functions}")
+    except Exception as e:
+        if debug:
+            print(f"DEBUG: Functions counting not available: {e}")
+    
+    # Get enforcer counts - even though unlimited, useful for renewal purposes
+    # Use the efficient optimized method that calls direct count APIs
+    from aquasec import get_enforcer_count
+    
+    try:
+        # Get total enforcer counts using optimized direct API calls
+        total_enforcers = get_enforcer_count(server, token, verbose=debug)
+        
+        if debug:
+            print(f"DEBUG: Total enforcer counts: {total_enforcers}")
+    except Exception as e:
+        if debug:
+            print(f"DEBUG: Failed to get enforcer counts: {e}")
+        # Fallback to empty counts
+        total_enforcers = {
+            'agent': 0,
+            'kube_enforcer': 0,
+            'host_enforcer': 0,
+            'micro_enforcer': 0,
+            'nano_enforcer': 0,
+            'pod_enforcer': 0
+        }
+    
+    # Calculate utilization - include all resources even if unlimited
+    utilization = {
+        'limits': licenses,
+        'usage': {
+            'repositories': total_repos,
+            'code_repositories': total_code_repos,
+            'functions': total_functions,
+            'enforcers': total_enforcers['agent'],
+            'kube_enforcers': total_enforcers['kube_enforcer'],
+            'host_enforcers': total_enforcers['host_enforcer'],
+            'micro_enforcers': total_enforcers['micro_enforcer'],
+            'nano_enforcers': total_enforcers['nano_enforcer'],
+            'pod_enforcers': total_enforcers['pod_enforcer'],
+            'vm_enforcers': total_enforcers['host_enforcer'],  # VM enforcers are counted as host enforcers
+            'protected_kube_nodes': total_enforcers['kube_enforcer']  # K8s nodes protected by kube enforcers
+        }
+    }
+    
+    if verbose:
+        # Show table with limits vs actual usage
+        table = PrettyTable(["Resource", "Limit", "Used", "Utilization %"])
+        table.align["Resource"] = "l"
+        table.align["Limit"] = "r"
+        table.align["Used"] = "r"
+        table.align["Utilization %"] = "r"
+        
+        # Define resource mappings - show all resources for renewal/usage tracking
+        resources = [
+            ('repositories', 'num_repositories', 'Image Repositories'),
+            ('code_repositories', 'num_code_repositories', 'Code Repositories'),
+            ('enforcers', 'num_protected_kube_nodes', 'Aqua Enforcers'),
+            ('kube_enforcers', None, 'Kube Enforcers'),
+            ('micro_enforcers', 'num_microenforcers', 'Micro Enforcers'),
+            ('vm_enforcers', 'num_vm_enforcers', 'VM Enforcers'),
+            ('functions', 'num_functions', 'Functions')
+        ]
+        
+        for usage_key, limit_key, display_name in resources:
+            # Handle None license key as unlimited
+            if limit_key is None:
+                limit = -1
+            else:
+                limit = licenses.get(limit_key, 0)
+            used = utilization['usage'].get(usage_key, 0)
+            
+            # Format limit
+            if limit == -1:
+                limit_str = "Unlimited"
+                util_pct = "-"
+            else:
+                limit_str = f"{limit:,}"
+                if limit > 0:
+                    util_pct = f"{(used / limit * 100):.1f}%"
+                else:
+                    util_pct = "-"
+            
+            table.add_row([display_name, limit_str, f"{used:,}", util_pct])
+        
+        print(table)
+        
+        # Show total active licenses
+        print(f"\nActive Licenses: {licenses.get('num_active', 0)}")
+        
+        # Note about enforcer data
+        if any(utilization['usage'][k] == 0 for k in ['enforcers', 'micro_enforcers', 'vm_enforcers']):
+            print("\nNote: For detailed enforcer counts, use 'license breakdown' command")
+    else:
+        # JSON output
+        print(json.dumps(utilization, indent=2))
+
+
 def license_breakdown(server, token, verbose=False, debug=False, csv_file=None, json_file=None, skip_repos=False):
     """Provide license usage breakdown per application scope"""
     # get the license information
@@ -133,7 +274,7 @@ def license_breakdown(server, token, verbose=False, debug=False, csv_file=None, 
 
     # get all application scopes
     scopes_list = []
-    scopes_result = get_app_scopes(server, token)
+    scopes_result = get_app_scopes(server, token, debug)
     for scope in scopes_result:
         scopes_list.append(scope["name"])
     if debug:
@@ -203,12 +344,12 @@ def license_breakdown(server, token, verbose=False, debug=False, csv_file=None, 
             row = [details["scope name"],
                     details["repos"],
                     details.get("code_repos", 0),
-                    details["agent"]["connected"],
-                    details["kube_enforcer"]["connected"],
-                    details["host_enforcer"]["connected"],
-                    details["micro_enforcer"]["connected"],
-                    details["nano_enforcer"]["connected"],
-                    details["pod_enforcer"]["connected"]]
+                    details["agent"],
+                    details["kube_enforcer"],
+                    details["host_enforcer"],
+                    details["micro_enforcer"],
+                    details["nano_enforcer"],
+                    details["pod_enforcer"]]
             table.add_row(row)
         
         print(table)
@@ -300,6 +441,9 @@ def main():
     
     # License show
     license_show_parser = license_subparsers.add_parser('show', help='Show license information (JSON by default, use -v for table)')
+    
+    # License count
+    license_count_parser = license_subparsers.add_parser('count', help='Show actual license utilization vs limits (JSON by default, use -v for table)')
     
     # License breakdown
     license_breakdown_parser = license_subparsers.add_parser('breakdown', help='Show license breakdown by application scope (JSON by default, use -v for table)')
@@ -482,6 +626,12 @@ def main():
                     print(f"DEBUG: API endpoint available: {api_endpoint}")
             
             license_show(csp_endpoint, token, args.verbose, args.debug)
+        elif args.command == 'license' and args.license_command == 'count':
+            # Debug: Show which endpoint we're using
+            if args.debug:
+                print(f"DEBUG: Using CSP endpoint for license API: {csp_endpoint}")
+            
+            license_count(csp_endpoint, token, args.verbose, args.debug)
         elif args.command == 'license' and args.license_command == 'breakdown':
             if args.debug:
                 print(f"DEBUG: Using CSP endpoint for license API: {csp_endpoint}")
